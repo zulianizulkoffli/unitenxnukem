@@ -1,50 +1,59 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sat May 24 18:42:44 2025
-
-@author: zzulk
-"""
-
-import cv2
-import numpy as np
 import streamlit as st
+import numpy as np
+import cv2
+import tempfile
 from PIL import Image
+from tensorflow.keras.models import load_model
 
-st.set_page_config(page_title="Thermal Heat Zone Detector", layout="centered")
-st.title("Thermal Video Heat Zone Detection with Labels")
+# Load the model
+@st.cache_resource
+def load_cnn_model():
+    return load_model("cnn-mnist-model.h5")  # change this if needed
 
-video_file = st.file_uploader("Upload a thermal video (.mp4)", type=["mp4"])
+model = load_cnn_model()
 
-if video_file:
-    # Save uploaded file temporarily
-    with open("uploaded_video.mp4", 'wb') as f:
-        f.write(video_file.read())
+# Prediction function
+def predict_image(img_array):
+    img_array = img_array.astype("float32") / 255.0
+    img_array = np.expand_dims(img_array, axis=0)  # (1, H, W, C)
+    pred = model.predict(img_array)
+    return np.argmax(pred), np.max(pred)
 
-    cap = cv2.VideoCapture("uploaded_video.mp4")
-    stframe = st.empty()
-    frame_idx = 0
+# Streamlit UI
+st.title("🧠 CNN-Based Image & Video Classification")
+st.markdown("Upload an image or a video to classify digits using a CNN model.")
 
-    while cap.isOpened() and frame_idx < 150:  # Limit for fast preview
-        ret, frame = cap.read()
-        if not ret:
-            break
+option = st.radio("Select input type:", ["Image", "Video"])
 
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        _, mask = cv2.threshold(gray, 200, 255, cv2.THRESH_BINARY)
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        color_frame = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+if option == "Image":
+    uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+    if uploaded_file is not None:
+        image = Image.open(uploaded_file).convert("L").resize((28, 28))
+        st.image(image, caption="Uploaded Image", use_column_width=True)
+        image_np = np.array(image).reshape((28, 28, 1))
+        label, confidence = predict_image(image_np)
+        st.success(f"🧾 Prediction: {label} with confidence {confidence:.2f}")
 
-        # Draw and label each zone
-        count = 0
-        for i, contour in enumerate(contours):
-            if cv2.contourArea(contour) > 50:
-                x, y, w, h = cv2.boundingRect(contour)
-                cv2.rectangle(color_frame, (x, y), (x+w, y+h), (0, 0, 255), 2)
-                cv2.putText(color_frame, f"Zone {i+1}", (x, y - 10),
-                            cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
-                count += 1
+elif option == "Video":
+    uploaded_video = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
+    if uploaded_video is not None:
+        tfile = tempfile.NamedTemporaryFile(delete=False)
+        tfile.write(uploaded_video.read())
 
-        stframe.image(color_frame, channels="BGR", caption=f"Frame {frame_idx+1} | Detected Zones: {count}", use_column_width=True)
-        frame_idx += 1
+        cap = cv2.VideoCapture(tfile.name)
+        stframe = st.empty()
+        frame_count = 0
 
-    cap.release()
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret or frame_count > 30:
+                break
+            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            frame_resized = cv2.resize(frame, (28, 28)).reshape((28, 28, 1))
+            label, confidence = predict_image(frame_resized)
+            display_frame = cv2.putText(cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR),
+                                        f"Pred: {label}", (5, 20),
+                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
+            stframe.image(display_frame, channels="BGR")
+            frame_count += 1
+        cap.release()
