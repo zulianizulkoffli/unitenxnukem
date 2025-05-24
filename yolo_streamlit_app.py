@@ -1,34 +1,43 @@
 import streamlit as st
-from PIL import Image
 import torch
-import pandas as pd
+import cv2
 import tempfile
 import os
+from PIL import Image
+import numpy as np
 
-st.title("YOLO Object Detection with Logging")
+st.set_page_config(layout="wide")
+st.title("Offline YOLOv5 Object Detection on Video")
 
-uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
+# Load YOLOv5 model (offline - local .pt file)
+@st.cache_resource
+def load_model():
+    return torch.hub.load("ultralytics/yolov5", "custom", path="yolov5s.pt", source="local")
 
-if uploaded_file:
-    # Save to a temporary location
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp:
-        temp.write(uploaded_file.read())
-        img_path = temp.name
+model = load_model()
 
-    image = Image.open(img_path)
-    st.image(image, caption="Uploaded Image", use_column_width=True)
+uploaded_video = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
 
-    model = torch.hub.load('ultralytics/yolov5', 'yolov5s', trust_repo=True)
-    results = model(img_path)
+if uploaded_video is not None:
+    tfile = tempfile.NamedTemporaryFile(delete=False)
+    tfile.write(uploaded_video.read())
 
-    # Convert to pandas DataFrame
-    df = results.pandas().xyxy[0]
-    st.write(df)
+    cap = cv2.VideoCapture(tfile.name)
+    stframe = st.empty()
 
-    # Save to CSV
-    csv_path = os.path.join("detection_log.csv")
-    df.to_csv(csv_path, index=False)
-    st.success("Detections logged to CSV!")
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret:
+            break
 
-    with open(csv_path, "rb") as f:
-        st.download_button("Download CSV Log", f, file_name="detections.csv")
+        # YOLO detection
+        results = model(frame)
+        rendered_frame = results.render()[0]
+        frame_rgb = cv2.cvtColor(rendered_frame, cv2.COLOR_BGR2RGB)
+
+        # Show video in Streamlit
+        stframe.image(frame_rgb, channels="RGB", use_column_width=True)
+
+    cap.release()
+    os.unlink(tfile.name)
+    st.success("Video processing completed.")
