@@ -1,6 +1,4 @@
 streamlit
-opencv-python
-pillow
+torch
 pandas
-torch>=1.9
-torchvision
+Pillow
