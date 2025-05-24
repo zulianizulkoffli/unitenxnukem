@@ -1,59 +1,38 @@
+# app.py
 import streamlit as st
-import numpy as np
-import cv2
-import tempfile
 from PIL import Image
-from tensorflow.keras.models import load_model
+import torch
+from torchvision import models, transforms
+import cv2
+import numpy as np
 
-# Load the model
-@st.cache_resource
-def load_cnn_model():
-    return load_model("cnn-mnist-model.h5")  # change this if needed
+# Load MobileNetV2
+model = models.mobilenet_v2(pretrained=True)
+model.eval()
 
-model = load_cnn_model()
+# Image transformation
+transform = transforms.Compose([
+    transforms.Resize((224, 224)),
+    transforms.ToTensor()
+])
 
-# Prediction function
-def predict_image(img_array):
-    img_array = img_array.astype("float32") / 255.0
-    img_array = np.expand_dims(img_array, axis=0)  # (1, H, W, C)
-    pred = model.predict(img_array)
-    return np.argmax(pred), np.max(pred)
+# Load ImageNet class labels
+LABELS_URL = "https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt"
+imagenet_classes = list(map(str.strip, requests.get(LABELS_URL).text.split("\n")))
 
 # Streamlit UI
-st.title("🧠 CNN-Based Image & Video Classification")
-st.markdown("Upload an image or a video to classify digits using a CNN model.")
+st.title("🧠 Smart CNN Image Classifier (MobileNetV2)")
+uploaded_file = st.file_uploader("Upload an Image", type=["jpg", "png", "jpeg"])
 
-option = st.radio("Select input type:", ["Image", "Video"])
+if uploaded_file:
+    image = Image.open(uploaded_file).convert("RGB")
+    st.image(image, caption="Uploaded Image", use_column_width=True)
 
-if option == "Image":
-    uploaded_file = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png"])
-    if uploaded_file is not None:
-        image = Image.open(uploaded_file).convert("L").resize((28, 28))
-        st.image(image, caption="Uploaded Image", use_column_width=True)
-        image_np = np.array(image).reshape((28, 28, 1))
-        label, confidence = predict_image(image_np)
-        st.success(f"🧾 Prediction: {label} with confidence {confidence:.2f}")
+    # Preprocess and predict
+    input_tensor = transform(image).unsqueeze(0)
+    with torch.no_grad():
+        output = model(input_tensor)
+        prob = torch.nn.functional.softmax(output[0], dim=0)
+        confidence, predicted_class = torch.max(prob, 0)
 
-elif option == "Video":
-    uploaded_video = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
-    if uploaded_video is not None:
-        tfile = tempfile.NamedTemporaryFile(delete=False)
-        tfile.write(uploaded_video.read())
-
-        cap = cv2.VideoCapture(tfile.name)
-        stframe = st.empty()
-        frame_count = 0
-
-        while cap.isOpened():
-            ret, frame = cap.read()
-            if not ret or frame_count > 30:
-                break
-            frame = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            frame_resized = cv2.resize(frame, (28, 28)).reshape((28, 28, 1))
-            label, confidence = predict_image(frame_resized)
-            display_frame = cv2.putText(cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR),
-                                        f"Pred: {label}", (5, 20),
-                                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
-            stframe.image(display_frame, channels="BGR")
-            frame_count += 1
-        cap.release()
+    st.success(f"Prediction: {imagenet_classes[predicted_class]} ({confidence.item():.2f})")
