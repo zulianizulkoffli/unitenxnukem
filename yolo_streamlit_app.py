@@ -1,12 +1,11 @@
 import streamlit as st
 import torch
-import cv2
 import tempfile
 import os
+import cv2
 import numpy as np
-from PIL import Image
 
-st.title("🎥 Offline YOLOv5 Object Detection on Video")
+st.title("Offline YOLOv5 Object Detection on Video")
 
 @st.cache_resource
 def load_model():
@@ -14,12 +13,14 @@ def load_model():
 
 model = load_model()
 
-uploaded_video = st.file_uploader("📤 Upload a video", type=["mp4", "avi", "mov"])
-if uploaded_video is not None:
+uploaded_video = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
+
+if uploaded_video:
     tfile = tempfile.NamedTemporaryFile(delete=False)
     tfile.write(uploaded_video.read())
+    video_path = tfile.name
 
-    cap = cv2.VideoCapture(tfile.name)
+    cap = cv2.VideoCapture(video_path)
     stframe = st.empty()
 
     while cap.isOpened():
@@ -30,8 +31,7 @@ if uploaded_video is not None:
         results = model(frame)
         annotated_frame = np.squeeze(results.render())
 
-        annotated_frame = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
-        stframe.image(annotated_frame, channels="RGB", use_column_width=True)
+        stframe.image(annotated_frame, channels="BGR")
 
     cap.release()
-    os.remove(tfile.name)
+    os.unlink(video_path)
