@@ -5,7 +5,7 @@ import tempfile
 import os
 
 st.set_page_config(page_title="YOLOv5 Video Detection", layout="wide")
-st.title("📦 YOLOv5 Object Detection on Video (Offline + Streamlit)")
+st.title("🎥 Offline YOLOv5 Object Detection on Video")
 
 @st.cache_resource
 def load_model():
@@ -16,10 +16,11 @@ model = load_model()
 uploaded_video = st.file_uploader("Upload a video", type=["mp4", "avi", "mov"])
 
 if uploaded_video:
-    temp_video = tempfile.NamedTemporaryFile(delete=False)
-    temp_video.write(uploaded_video.read())
+    tfile = tempfile.NamedTemporaryFile(delete=False)
+    tfile.write(uploaded_video.read())
+    video_path = tfile.name
 
-    cap = cv2.VideoCapture(temp_video.name)
+    cap = cv2.VideoCapture(video_path)
     stframe = st.empty()
 
     while cap.isOpened():
@@ -28,10 +29,9 @@ if uploaded_video:
             break
 
         results = model(frame)
-        result_frame = results.render()[0]
-        result_rgb = cv2.cvtColor(result_frame, cv2.COLOR_BGR2RGB)
-
-        stframe.image(result_rgb, channels="RGB", use_column_width=True)
+        output_frame = results.render()[0]
+        rgb_output = cv2.cvtColor(output_frame, cv2.COLOR_BGR2RGB)
+        stframe.image(rgb_output, channels="RGB")
 
     cap.release()
-    os.unlink(temp_video.name)
+    os.unlink(video_path)
